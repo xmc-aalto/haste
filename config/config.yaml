@@ -1,0 +1,10 @@
+defaults:
+  - environment: env
+  - dataset: amazon670k
+  - _self_
+
+dataset_path: ""
+use_wandb: False
+wandb_runname: "P2K9M_memtest_DBN_h100"
+log_fname: ${wandb_runname}
+job_num: ${hydra:job.num}

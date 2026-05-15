@@ -1,0 +1,115 @@
+data:
+  dataset: amazon670k
+  is_lf_data: False
+  augment_label_data: False
+  use_filter_eval: False
+  num_labels: 670091  
+  max_len: 128
+  num_workers: 8
+  batch_size: 64
+  test_batch_size: 64
+  tokenized_loading: False
+
+model:
+  
+  encoder:
+    encoder_model: "bert-base-uncased"
+    encoder_tokenizer: "${dataset.model.encoder.encoder_model}"
+    encoder_ftr_dim: ${encoder_feature_size:${dataset.model.encoder.encoder_model}}
+    pool_mode: 'last_nhidden_conlast' #[last_nhidden_conlast,last_hidden_avg]
+    feature_layers: 1
+    embed_dropout: 0.4
+    use_torch_compile: True
+    use_ngame_encoder_weights: False
+    ngame_checkpoint: ./NGAME_ENCODERS/${dataset.data.dataset}/state_dict.pt
+
+  penultimate:
+    use_penultimate_layer: False
+    penultimate_size: 64
+    penultimate_activation: relu
+
+  ffi:
+    use_ht_split: True
+    head_ratio: 0.1
+    use_sparse_layer: True
+    use_shared_group: True
+    group_size: 16
+    cluster_based_grouping: False
+    cluster_file: amazon670k_label_embs.npz   #amazon670k_label_embs.npz amazon670k_label_embs_4B8000.npz
+    fan_in: 64
+    prune_mode: fraction
+    rewire_threshold: 0.01
+    rewire_fraction: 0.25
+    growth_mode: random
+    growth_init_mode: zero
+    input_features: ${input_size_select:${dataset.model.penultimate.use_penultimate_layer},
+                          ${dataset.model.penultimate.penultimate_size},${dataset.model.encoder.feature_layers},${dataset.model.encoder.encoder_ftr_dim}}   #set based on penultimate value in Encoder
+    output_features: ${dataset.data.num_labels} #depends on num_labels in data
+    rewire_interval: 5000 
+    use_rewire_scheduling: True
+    rewire_end_epoch: 0.66   
+
+  auxiliary:
+    use_meta_branch: False
+    group_y_group: 0
+    meta_cutoff_epoch: 45   # varies based on fan_in values
+    auxloss_scaling: 0.2
+
+  private_feature:
+    use_private_feature: True
+    head_start: 384
+    head_end: 768
+    tail_start: 0
+    tail_end: 384
+    head_dropout: 0.4 
+    tail_dropout: 0.4 
+
+
+
+training:
+  seed: 42
+  amp:
+    enabled: False
+    dtype: bfloat16
+
+  optimization:
+    loss_fn: bce   # ['bce','squared_hinge']
+    encoder_optimizer: adamw #[sgd,adam,adamw]
+    xmc_optimizer: sgd
+    epochs: 110 
+    grad_accum_step: 1
+    encoder_lr: 3.0e-5 
+    penultimate_lr: 0.0002
+    meta_lr: 0.0005
+    lr: 0.06  
+    momentum: 0.9 
+    wd_encoder: 0.01   # weight decay on encoder
+    wd: 1e-4  # weight decay of final layer
+    lr_scheduler: CosineScheduleWithWarmup   #[MultiStepLR,CosineScheduleWithWarmup,ReduceLROnPlateau]
+    lr_scheduler_xmc: CosineScheduleWithWarmup #[MultiStepLR,CosineScheduleWithWarmup,ReduceLROnPlateau]
+    warmup_steps: 5000 
+    training_steps: 7664 
+
+
+  evaluation:
+    train_evaluate: True
+    train_evaluate_every: 10
+    test_evaluate_every: 1
+    A: 0.6  # for propensity calculation
+    B: 2.6  # for propensity calculation
+    eval_psp: True
+
+  verbose:
+    show_iter: False  # print loss during training
+    print_iter: 2000  # how often (iteration) to print
+    use_wandb: False
+    wandb_project_name: HASTE # project name
+    wandb_runname: none
+    logging: True
+    log_fname: log_amazon670k
+    job_num: 0
+    
+  use_checkpoint: True  #whether to use automatic checkpoint
+  checkpoint_file: amazon670K_G16FFI64HT_1.pt
+  best_p1: 0.49  # to store the model above this performance in case of automatic checkpoint
+
